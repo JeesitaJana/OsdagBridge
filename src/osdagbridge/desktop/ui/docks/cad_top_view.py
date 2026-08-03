@@ -6,7 +6,7 @@ Author: Arushi
 from osdagbridge.core.utils.common import *
 import math
 from PySide6.QtWidgets import QWidget, QPushButton, QScrollArea
-from PySide6.QtCore import Qt, QRectF, QPointF, QTimer, QSize
+from PySide6.QtCore import Qt, QRectF, QPointF, QTimer, QSize, Signal
 from PySide6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QPolygonF, QIcon
 from .cad_cross_section import CrossSectionCADWidget
 
@@ -27,6 +27,7 @@ LEADER_TEXT_OFFSET = 25    # leader label distance
 
 class TopViewCADWidget(QWidget):
     """Widget for drawing bridge top view"""
+    dimensionEditRequested = Signal(dict)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -38,6 +39,8 @@ class TopViewCADWidget(QWidget):
         # top view hover tracking 
         self.top_view_hover_zones = []  # list of (QRectF, element_type)
         self.hovered_top_view_element = None
+        self.editable_dimension_hits = []
+        self._editable_dimension_order = []
         
         # Zoom level for this widget
         self.zoom_level = 1.0
@@ -480,6 +483,8 @@ class TopViewCADWidget(QWidget):
     def paintEvent(self, event):
         # clear hover zones at start of each paint
         self.top_view_hover_zones = []
+        self.editable_dimension_hits = []
+        self._editable_dimension_order = []
         
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -487,9 +492,54 @@ class TopViewCADWidget(QWidget):
         
         self.draw_top_view(painter)
         
+    def _dimension_label_rect(self, painter, x, y, text, font_size=9, bold=False):
+        font_size = max(1, font_size)
+        font_weight = QFont.Bold if bold else QFont.Normal
+        font = QFont('Arial', font_size, font_weight)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        lines = text.split("\n")
+        line_height = metrics.height()
+        max_width = max(metrics.boundingRect(line).width() for line in lines)
+        total_height = line_height * len(lines)
+        padding = 2
+        return QRectF(
+            x - padding,
+            y - total_height - padding,
+            max_width + 2 * padding,
+            total_height + 2 * padding,
+        )
+
+    def _register_editable_dimension_hit(self, rect, payload=None):
+        if rect is None:
+            return
+        entry = {"rect": QRectF(rect)}
+        if payload:
+            entry.update(payload)
+        self.editable_dimension_hits.append(entry)
+        self._editable_dimension_order.append(entry)
+
+    def _hit_test_editable_dimension(self, pos):
+        point = QPointF(pos)
+        for entry in reversed(self._editable_dimension_order):
+            rect = entry.get("rect")
+            if isinstance(rect, QRectF) and rect.contains(point):
+                return entry
+        return None
+
+    def mouseDoubleClickEvent(self, event):
+        pos = event.position() if hasattr(event, 'position') else event.pos()
+        hit = self._hit_test_editable_dimension(pos)
+        if hit:
+            self.dimensionEditRequested.emit(dict(hit))
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
     def draw_text_with_background(self, painter, x, y, text,
                               bg_color=QColor(255, 255, 255, 230), 
-                              text_color=QColor(0, 0, 0), font_size=9, bold=False):
+                              text_color=QColor(0, 0, 0), font_size=9, bold=False,
+                              editable_dimension=None):
 
         # defensive check: font size must be > 0
         font_size = max(1, font_size)
@@ -525,6 +575,14 @@ class TopViewCADWidget(QWidget):
 
         for i, line in enumerate(lines):
             painter.drawText(int(x), int(first_line_y + i * line_height), line)
+
+        if editable_dimension:
+            rect = self._dimension_label_rect(painter, x, y, text, font_size, bold)
+            payload = dict(editable_dimension)
+            payload.setdefault("label_text", text)
+            payload.setdefault("display_text", text)
+            payload.setdefault("view", "top_view")
+            self._register_editable_dimension_hit(rect, payload)
 
     
     def draw_dimension_arrow(self, painter, x1, y1, x2, y2, text, horizontal=True, offset=0, text_offset=0, draw_extensions=True, extension_direction='down', extension_end_y=None):
@@ -1282,7 +1340,13 @@ class TopViewCADWidget(QWidget):
             
             self.draw_dimension_arrow_with_extensions_up(
                 painter, x1_brace, dim_y1, x2_brace, dim_y1,
-                label_cb, last_girder_y
+                label_cb, last_girder_y,
+                editable_dimension={
+                    "label_id": "cross_bracing_spacing",
+                    "source_key": "cross_bracing_spacing",
+                    "unit": "m",
+                    "value": cb_spacing_m,
+                }
             )
             dim_y_next = dim_y_base + DIM_STACK_GAP
         else:
@@ -1299,7 +1363,13 @@ class TopViewCADWidget(QWidget):
         
         self.draw_dimension_arrow_with_extensions_up(
             painter, x1_span, dim_y2, x2_span, dim_y2,
-            label_span, last_girder_y
+            label_span, last_girder_y,
+            editable_dimension={
+                "label_id": "span_length",
+                "source_key": "span_length",
+                "unit": "m",
+                "value": span_m,
+            }
         )
 
         # GIRDER SPACING dimension (always visible)
@@ -1334,7 +1404,13 @@ class TopViewCADWidget(QWidget):
                 painter, label_x, label_y,
                 label_text,
                 QColor(255, 255, 255, 240),
-                QColor(0, 0, 0), 9, False
+                QColor(0, 0, 0), 9, False,
+                editable_dimension={
+                    "label_id": "girder_spacing",
+                    "source_key": "girder_spacing",
+                    "unit": "m",
+                    "value": gs_m,
+                }
             )
 
         # CL OF BEARING labels - ALWAYS VISIBLE (moved outside hover condition)
@@ -1345,11 +1421,25 @@ class TopViewCADWidget(QWidget):
         
         self.draw_text_with_background(painter, left_label_x, label_y_bearing,
                                     "CL of Bearing", QColor(255, 255, 255, 240),
-                                    QColor(0, 0 ,0), 9, False)
+                                    QColor(0, 0 ,0), 9, False,
+                                    editable_dimension={
+                                        "label_id": "cl_of_bearing",
+                                        "source_key": "bearing_centerline",
+                                        "unit": "m",
+                                        "value": None,
+                                        "side": "left",
+                                    })
         
         self.draw_text_with_background(painter, right_label_x, label_y_bearing,
                                     "CL of Bearing", QColor(255, 255, 255, 240),
-                                    QColor(0, 0 ,0), 9, False)
+                                    QColor(0, 0 ,0), 9, False,
+                                    editable_dimension={
+                                        "label_id": "cl_of_bearing",
+                                        "source_key": "bearing_centerline",
+                                        "unit": "m",
+                                        "value": None,
+                                        "side": "right",
+                                    })
 
         # HOVER LABELS (only shown when hovered) 
         
@@ -1410,7 +1500,7 @@ class TopViewCADWidget(QWidget):
             self.draw_clean_leader_line(painter, target_x, target_y, label_x, label_y,
                                     "End Diaphragm", CAD_DARK_GREY, QColor(139, 69, 19))
 
-    def draw_dimension_arrow_with_extensions_up(self, painter, x1, y1, x2, y2, text, girder_y):
+    def draw_dimension_arrow_with_extensions_up(self, painter, x1, y1, x2, y2, text, girder_y, editable_dimension=None):
         """Dimension line with arrows and extension lines going UP to girder level (dimension below)"""
         painter.setPen(QPen(QColor(0, 0, 0), 1.0))
         
@@ -1462,7 +1552,8 @@ class TopViewCADWidget(QWidget):
         text_width = metrics.boundingRect(text).width()
         
         self.draw_text_with_background(painter, text_x - text_width/2, text_y, text, 
-                                    QColor(255, 255, 255, 240), QColor(0, 0, 0), 9, False)
+                        QColor(255, 255, 255, 240), QColor(0, 0, 0), 9, False,
+                        editable_dimension=editable_dimension)
 
 
     def draw_skewed_dimension_arrow(self, painter, x1, y1, x2, y2, text, skew_rad):
