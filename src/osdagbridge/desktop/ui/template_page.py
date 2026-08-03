@@ -11,6 +11,7 @@ from osdagbridge.desktop.ui.docks.input_dock import InputDock
 from osdagbridge.desktop.ui.docks.output_dock import OutputDock
 from osdagbridge.desktop.ui.docks.log_dock import LogDock
 from osdagbridge.desktop.ui.docks.cad_dual_view import BridgeDualCADWidget
+from osdagbridge.desktop.ui.dialogs.cad_dimension_editor import CadDimensionEditorDialog
 from osdagbridge.desktop.ui.dialogs.additional_input.additional_inputs import AdditionalInputs
 from osdagbridge.desktop.ui.dialogs.custom_messagebox import CustomMessageBox, MessageBoxType
 from osdagbridge.desktop.ui.dialogs.loading_popup import LoadingDialogManager
@@ -122,6 +123,7 @@ class CustomWindow(QWidget):
 
         # AdditionalInputs dialog 
         self._additional_inputs_dialog: AdditionalInputs | None = None
+        self._cad_dimension_editor_dialog: CadDimensionEditorDialog | None = None
       
         # AdditionalInputs - Created once on first use, shown/hidden thereafter.
         self._get_additional_inputs()
@@ -788,6 +790,32 @@ class CustomWindow(QWidget):
         # This will update the CAD whenever any input field changes
         if hasattr(self.input_dock, 'input_value_changed'):
             self.input_dock.input_value_changed.connect(self.update_cad_from_inputs)        
+        if hasattr(self.cad_comp_widget, 'dimensionEditRequested'):
+            self.cad_comp_widget.dimensionEditRequested.connect(self.on_dimension_edit_requested)
+
+    def on_dimension_edit_requested(self, payload):
+        """Receive a CAD dimension edit request and open the editor."""
+        self._open_dimension_editor(payload)
+
+    def _open_dimension_editor(self, payload):
+        """Lazily create and execute the reusable CAD dimension editor dialog."""
+        if self._cad_dimension_editor_dialog is None:
+            self._cad_dimension_editor_dialog = CadDimensionEditorDialog(self)
+
+        dialog = self._cad_dimension_editor_dialog
+        dialog.set_context(payload)
+        result = dialog.exec()
+        if result != dialog.Accepted:
+            return
+
+        self._commit_dimension_edit(payload, dialog.value())
+
+    def _commit_dimension_edit(self, payload, new_value):
+        """Commit a dimension edit into the shared input dictionary and refresh CAD."""
+        source_key = payload["source_key"]
+        self.input_dict[source_key] = new_value
+        solve_extend_basic_input_dict(self.input_dict)
+        self.update_cad_from_inputs()
             
     # Function for saving input dictionary into an OSI file
     def saveOSI_inputs(self):
