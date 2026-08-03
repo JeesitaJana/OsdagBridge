@@ -15,7 +15,7 @@ import json
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
     QComboBox, QScrollArea, QLabel, QLineEdit, QGroupBox, QSizePolicy,
-    QDialog, QFrame, QToolButton
+    QDialog, QFrame, QToolButton, QDoubleSpinBox, QSpinBox, QCheckBox
 )
 from PySide6.QtCore import Qt, QRegularExpression, QSize, QTimer, QPoint, QEvent, Signal
 from PySide6.QtGui import QDoubleValidator, QRegularExpressionValidator, QIcon, QColor, QBrush
@@ -1082,6 +1082,55 @@ class InputDock(QWidget):
         # runs on the next Design call and derives all computed defaults.
         self.is_require_field_changed = True
         self.input_value_changed.emit()
+
+    def sync_from_input_dict(self, input_dict: dict | None = None) -> None:
+        """Refresh existing widgets from the provided input dictionary without rebuilding the form."""
+        if not self.input_widget:
+            return
+
+        source_dict = input_dict if input_dict is not None else getattr(self.parent, "input_dict", {})
+        if source_dict is None:
+            source_dict = {}
+
+        for field in self.backend.input_values():
+            key = field[0]
+            if not key:
+                continue
+
+            widget = self._w(key)
+            if widget is None:
+                continue
+
+            value = source_dict.get(key, BASIC_INPUT_DICT.get(key))
+            self._set_widget_value_silently(widget, value)
+
+    def _set_widget_value_silently(self, widget, value):
+        """Update a supported widget type without emitting signals."""
+        if widget is None:
+            return
+
+        blocked = widget.blockSignals(True)
+        try:
+            if isinstance(widget, QLineEdit):
+                widget.setText("") if value is None else widget.setText(str(value))
+            elif isinstance(widget, QDoubleSpinBox):
+                numeric_value = 0.0 if value in (None, "") else float(value)
+                widget.setValue(numeric_value)
+            elif isinstance(widget, QSpinBox):
+                numeric_value = 0 if value in (None, "") else int(float(value))
+                widget.setValue(numeric_value)
+            elif isinstance(widget, QComboBox):
+                text = "" if value is None else str(value)
+                if text and widget.findText(text) < 0:
+                    widget.addItem(text)
+                self._set_combo_silently(widget, text)
+            elif isinstance(widget, QCheckBox):
+                checked = value
+                if isinstance(checked, str):
+                    checked = checked.strip().lower() in {"1", "true", "yes", "on"}
+                widget.setChecked(bool(checked))
+        finally:
+            widget.blockSignals(blocked)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Utilities
