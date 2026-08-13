@@ -48,6 +48,9 @@ class AdditionalInputs(QDialog):
         self.default_input_dict = {}
         # Work temporarily on a copy of default dictionary
         self.working_input_dict = {}
+        # Snapshot of the last successfully populated/saved working state.
+        # Dirty state is derived by value comparison against this snapshot.
+        self._saved_input_snapshot = {}
         # Last confirmed-good spacing and girder count; restored if solver raises an error
         self._last_good_layout: dict = {}
 
@@ -245,6 +248,20 @@ class AdditionalInputs(QDialog):
             self.interacted_first = False
             from osdagbridge.core.bridge_types.plate_girder.ui_fields_additional_input import END_CONNECTORS
             UIBuilder.wire_end_connectors(END_CONNECTORS, ai=self)
+
+        # The fully populated working dictionary, including any state created by
+        # the initial connector wiring above, is the clean baseline for this
+        # dialog session.
+        self._capture_saved_input_snapshot()
+
+    def _capture_saved_input_snapshot(self) -> None:
+        """Capture the current working state as the last saved/clean baseline."""
+        self._saved_input_snapshot = deepcopy(self.working_input_dict)
+
+    @property
+    def is_modified(self) -> bool:
+        """Return True when the working state differs from the saved baseline."""
+        return self.working_input_dict != self._saved_input_snapshot
 
     def set_defaults(self) -> None:  # lifecycle: populates all widgets from working_input_dict; called at init time only
         """
@@ -504,6 +521,24 @@ class AdditionalInputs(QDialog):
             if hasattr(tab_widget, "refresh_active_tab"):
                 tab_widget.refresh_active_tab()
 
+    def closeEvent(self, event):  # Qt event: warns on unsaved changes before allowing the dialog to close
+        if not self.is_modified:
+            event.accept()
+            return
+
+        result = CustomMessageBox(
+            title="Unsaved Changes",
+            text="You have unsaved changes. Closing this window will discard them. Do you want to proceed?",
+            buttons=["Discard", "Cancel"],
+            dialogType=MessageBoxType.Warning,
+        ).exec()
+
+        if result == "Discard":
+            self.working_input_dict = deepcopy(self._saved_input_snapshot)
+            event.accept()
+        else:
+            event.ignore()
+
     # ── Dialog Persistence ───────────────────────────────────────────────────────
 
     def _save_inputs(self):  # on_change: validates all tabs then commits working_input_dict and emits CAD update signal
@@ -521,6 +556,12 @@ class AdditionalInputs(QDialog):
             self._save_stiffener_member_data(combo.currentText().strip())
 
         self.default_input_dict.update(self.working_input_dict)
+
+        # The commit above succeeded, so the current working state is now the
+        # saved baseline. Keep the snapshot update after validation and commit
+        # so a failed validation never clears the modified state.
+        self._capture_saved_input_snapshot()
+
         from osdagbridge.desktop.ui.docks.cad_cross_section import CrossSectionCADWidget
         cad = self.findChild(CrossSectionCADWidget, KEY_TS_CAD_PREVIEW)
         if cad:
