@@ -507,6 +507,10 @@ class AdditionalInputs(QDialog):
     # ── Dialog Persistence ───────────────────────────────────────────────────────
 
     def _save_inputs(self):  # on_change: validates all tabs then commits working_input_dict and emits CAD update signal
+        custom_input_errors = self._validate_custom_inputs_before_save()
+        if custom_input_errors:
+            self._show_validation_errors(custom_input_errors)
+            return
 
         # Flush the currently-displayed stiffener member's widgets before committing.
         # _save_stiffener_member_data otherwise only runs when switching *away* from a
@@ -537,6 +541,130 @@ class AdditionalInputs(QDialog):
             buttons=["OK"],
             dialogType=MessageBoxType.Warning,
         ).exec()
+
+    def _validate_custom_inputs_before_save(self) -> list[str]:
+        """Return validation errors for Custom selections with blank value widgets."""
+        errors: list[str] = []
+
+        for selector_key, value_keys in self._custom_selector_value_map().items():
+            if self._current_text(selector_key) != "Custom":
+                continue
+            for value_key in value_keys:
+                if self._is_empty_custom_value(value_key):
+                    errors.append(
+                        f"Error: The custom value for '{self._parameter_label(value_key)}' cannot be empty."
+                    )
+
+        for field_def in self._iter_additional_input_fields():
+            if field_def.get("type") != TYPE_MODE_LINE:
+                continue
+            choices = field_def.get("mode_choices") or []
+            if "Custom" not in choices:
+                continue
+
+            field_id = field_def.get("id", "")
+            if not field_id:
+                continue
+
+            mode_key = field_id + ".mode"
+            value_key = field_id + ".value"
+            if self._current_text(mode_key) == "Custom" and self._is_empty_custom_value(value_key):
+                errors.append(
+                    f"Error: The custom value for '{self._parameter_label(field_id)}' cannot be empty."
+                )
+
+        for field_def in self._iter_additional_input_fields():
+            if field_def.get("type") != TYPE_ALL_CUSTOM:
+                continue
+            field_id = field_def.get("id", "")
+            if not field_id or self._current_text(field_id) != "Custom":
+                continue
+
+            selected = self.working_input_dict.get(field_id + ".selected", [])
+            if selected is None or selected == "" or (isinstance(selected, list) and not selected):
+                errors.append(
+                    f"Error: The custom value for '{self._parameter_label(field_id)}' cannot be empty."
+                )
+
+        return errors
+
+    def _custom_selector_value_map(self) -> dict[str, tuple[str, ...]]:
+        """Map canonical Custom selector keys to required canonical value keys."""
+        return {
+            KEY_CB_TYPE: (
+                KEY_CB_DENSITY,
+                KEY_CB_WIDTH,
+                KEY_CB_HEIGHT,
+                KEY_CB_AREA,
+                KEY_CB_LOAD,
+            ),
+            KEY_MD_TYPE: (
+                KEY_MD_DENSITY,
+                KEY_MD_WIDTH,
+                KEY_MD_HEIGHT,
+                KEY_MD_AREA,
+                KEY_MD_LOAD,
+            ),
+            KEY_RL_TYPE: (
+                KEY_RL_WIDTH,
+                KEY_RL_HEIGHT,
+            ),
+            KEY_RL_LOAD_MODE: (
+                KEY_RL_LOAD_VALUE,
+            ),
+            KEY_WC_MATERIAL: (
+                KEY_WC_DENSITY,
+            ),
+        }
+
+    def _iter_additional_input_fields(self):
+        """Yield every field definition from ADDITIONAL_INPUTS_SCHEMA."""
+        def _walk(node):
+            if isinstance(node, dict):
+                if "id" in node and "type" in node:
+                    yield node
+                for value in node.values():
+                    yield from _walk(value)
+            elif isinstance(node, list):
+                for item in node:
+                    yield from _walk(item)
+
+        yield from _walk(ADDITIONAL_INPUTS_SCHEMA)
+
+    def _parameter_label(self, key: str) -> str:
+        """Return a human-readable schema label for a canonical field key."""
+        for field_def in self._iter_additional_input_fields():
+            if field_def.get("id") == key:
+                return self._clean_parameter_label(field_def.get("label") or field_def.get("title") or key)
+
+        base_key = key.rsplit(".", 1)[0] if key.endswith((".mode", ".value")) else key
+        for field_def in self._iter_additional_input_fields():
+            if field_def.get("id") == base_key:
+                return self._clean_parameter_label(field_def.get("label") or field_def.get("title") or base_key)
+
+        return key
+
+    @staticmethod
+    def _clean_parameter_label(label: str) -> str:
+        import re
+        text = re.sub(r"<[^>]+>", "", str(label))
+        return text.replace("&nbsp;", " ").replace(":", "").strip()
+
+    def _current_text(self, key: str) -> str:
+        widget = self.findChild(QComboBox, key)
+        if widget:
+            return widget.currentText().strip()
+
+        value = self.working_input_dict.get(key)
+        return "" if value is None else str(value).strip()
+
+    def _is_empty_custom_value(self, key: str) -> bool:
+        widget = self.findChild(QLineEdit, key)
+        if widget:
+            return widget.text().strip() == ""
+
+        value = self.working_input_dict.get(key)
+        return value is None or (isinstance(value, str) and value.strip() == "")
 
     # ── Field Change Handling ────────────────────────────────────────────────────
 
