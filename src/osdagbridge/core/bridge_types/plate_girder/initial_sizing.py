@@ -338,6 +338,156 @@ class BridgeConfigurationSolver:
         return result
     
     # =========================================================================
+    # Reverse CAD Dimension Editing
+    # =========================================================================
+
+    def solve_from_cad_dimension_edit(
+        self,
+        *,
+        target_width: float,
+        no_of_girders: int,
+        current_spacing: float,
+        current_overhang: float,
+        edited_dimension: str,
+    ) -> BridgeLayoutResult:
+        """
+        Reverse-solve the girder layout after an editable CAD width
+        dimension is changed.
+
+        The number of girders remains fixed.
+
+        Parameters
+        ----------
+        target_width : float
+            Desired bridge/deck width in metres.
+
+        no_of_girders : int
+            Current number of girders. Must be >= 2.
+
+        current_spacing : float
+            Current girder spacing in metres.
+
+        current_overhang : float
+            Current deck overhang in metres.
+
+        edited_dimension : str
+            Identifier for the edited CAD dimension.
+
+            Supported values:
+                "overall_bridge_width"
+                "deck_width"
+
+        Returns
+        -------
+        BridgeLayoutResult
+            Updated girder layout satisfying:
+
+                target_width =
+                    (n - 1) * spacing + 2 * overhang
+
+        Notes
+        -----
+        The number of girders is kept fixed.
+
+        For a width edit, the current deck overhang is preserved
+        and the required girder spacing is calculated.
+        """
+
+        # Validate edited dimension
+        if edited_dimension not in (
+            "overall_bridge_width",
+            "deck_width",
+        ):
+            raise ValueError(
+                "edited_dimension must be "
+                "'overall_bridge_width' or 'deck_width'."
+            )
+
+        # Validate target width
+        if target_width <= 0:
+            raise ValueError(
+                "Target width must be positive."
+            )
+
+        # Validate number of girders
+        if no_of_girders < 2:
+            raise ValueError(
+                "Number of girders must be at least 2."
+            )
+
+        # Validate current overhang
+        if current_overhang < 0:
+            raise ValueError(
+                "Current deck overhang cannot be negative."
+            )
+
+        # Validate current spacing
+        if current_spacing <= 0:
+            raise ValueError(
+                "Current girder spacing must be positive."
+            )
+
+        # Determine allowable spacing for the requested target width.
+        spacing_bounds = self._spacing_bounds(target_width)
+
+        # Reverse the bridge-width equation:
+        #
+        # target_width =
+        #     (n - 1) * spacing + 2 * overhang
+        #
+        # Keep the number of girders and current overhang fixed,
+        # then solve for the new girder spacing.
+        spacing = (
+            target_width - 2.0 * current_overhang
+        ) / (no_of_girders - 1)
+
+        if spacing <= 0:
+            raise ValueError(
+                f"Target width {target_width:.3f} m is too small "
+                f"for {no_of_girders} girders and "
+                f"{current_overhang:.3f} m deck overhang."
+            )
+
+        if spacing < spacing_bounds[0]:
+            raise ValueError(
+                f"Target width {target_width:.3f} m would require "
+                f"girder spacing {spacing:.3f} m, which is below "
+                f"the minimum allowed spacing of "
+                f"{spacing_bounds[0]:.3f} m."
+            )
+
+        if spacing > spacing_bounds[1]:
+            raise ValueError(
+                f"Target width {target_width:.3f} m would require "
+                f"girder spacing {spacing:.3f} m, which is above "
+                f"the maximum allowed spacing of "
+                f"{spacing_bounds[1]:.3f} m."
+            )
+
+        # Round only after solving.
+        result = BridgeLayoutResult(
+            overall_width=target_width,
+            no_of_girders=no_of_girders,
+            girder_spacing=round(spacing, 4),
+            deck_overhang=round(current_overhang, 4),
+        )
+
+        # Verify the reverse-solved mathematical relationship.
+        calculated_width = (
+            (result.no_of_girders - 1)
+            * result.girder_spacing
+            + 2.0 * result.deck_overhang
+        )
+
+        if abs(calculated_width - target_width) > 1e-3:
+            raise ValueError(
+                "Reverse-solved girder layout does not satisfy "
+                "the requested target width."
+            )
+
+        return result
+
+    # =========================================================================
     # Point 5: Deck Thickness
     # =========================================================================
     def get_deck_thickness(self, user_value: Optional[float] = None) -> float:
