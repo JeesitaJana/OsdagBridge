@@ -924,7 +924,7 @@ class SteelDesign(QDialog):
         ]
         bmd_key, sfd_key, defl_key, rhs_labels, max_keys = _COMPONENT_CFG[min(comp_idx, 2)]
 
-        result = engine.extract_member_results(member_key, loadcase, bmd_key, sfd_key)
+        result = engine.extract_member_results(member_key, loadcase, bmd_key, sfd_key, defl_key)
         if result is None:
             engine.show_blank_state(self.canvas)
             return
@@ -933,15 +933,15 @@ class SteelDesign(QDialog):
         # Flip the sign of deflection so downward (currently +ve) renders as -ve
         # across the deflection plot, the scroll cursor, and the max-value panel.
         defl_values = -np.asarray(defl_values)
-        if isinstance(all_data, dict) and "dy" in all_data:
-            all_data["dy"] = -np.asarray(all_data["dy"])
+        if isinstance(all_data, dict) and defl_key in all_data:
+            all_data[defl_key] = -np.asarray(all_data[defl_key])
         self._current_x    = xs
         self._current_bmd  = bmd_values
         self._current_sfd  = sfd_values
         self._current_defl = defl_values
 
         self._current_max_dict = engine.compute_maximums(
-            xs, bmd_values, sfd_values, all_data
+            xs, bmd_values, sfd_values, all_data, defl_key
         )
 
         # ── Append support reactions to dict ──────────────────────────────────

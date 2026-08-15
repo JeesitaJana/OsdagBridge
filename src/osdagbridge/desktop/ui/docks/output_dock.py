@@ -860,15 +860,65 @@ class OutputDock(QWidget):
         # 2. Update Analysis Member dropdown
         from osdagbridge.core.utils.common import KEY_ANALYSIS_MEMBER
         combo_analysis = self._w(KEY_ANALYSIS_MEMBER)
+
         if combo_analysis is not None:
+            analysis_items = ["All"] + items
+
+            # Add transverse members from the actual OpenSees model.
+            # These are stored separately from the longitudinal girder members.
+            try:
+                from osdagbridge.core.bridge_types.plate_girder.results_data import (
+                    _build_nodes_members
+                )
+
+                _nodes, members = _build_nodes_members()
+
+                transverse_members = []
+
+                for element_id, node_ids in members.items():
+                    if len(node_ids) != 2:
+                        continue
+
+                    n1 = _nodes.get(node_ids[0])
+                    n2 = _nodes.get(node_ids[1])
+
+                    if n1 is None or n2 is None:
+                        continue
+
+                    dx = abs(float(n1[0]) - float(n2[0]))
+                    dz = abs(float(n1[2]) - float(n2[2]))
+
+                    # Transverse members run mainly across the bridge width.
+                    if dz > dx:
+                        transverse_members.append(int(element_id))
+
+                transverse_members = sorted(set(transverse_members))
+
+                transverse_items = [
+                    f"T{i + 1}"
+                    for i in range(len(transverse_members))
+                ]
+
+                analysis_items.extend(transverse_items)
+
+            except Exception as exc:
+                print(
+                    f"[ANALYSIS MEMBER] Could not load transverse members: {exc}"
+                )
+
             combo_analysis.blockSignals(True)
             combo_analysis.clear()
-            combo_analysis.addItems(["All"] + items)
+            combo_analysis.addItems(analysis_items)
             combo_analysis.setCurrentIndex(0)
-            combo_analysis.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-            combo_analysis.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            combo_analysis.setSizeAdjustPolicy(
+                QComboBox.AdjustToMinimumContentsLengthWithIcon
+            )
+            combo_analysis.setSizePolicy(
+                QSizePolicy.Ignored,
+                QSizePolicy.Fixed
+            )
             combo_analysis.blockSignals(False)
-   
+
     def connect_design_dropdowns(self):
         """Connect Member and Load Case dropdowns to refresh DCR bars on change."""
         for key in (KEY_OUTPUT_DOCK_MEMBER_ID, KEY_OUTPUT_DOCK_LOAD_COMBINATION):

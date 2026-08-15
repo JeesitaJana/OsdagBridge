@@ -2230,15 +2230,31 @@ class CrossSectionCADWidget(QWidget):
         else:
             # Single carriageway
             cw_m = self.params['carriageway_width'] / 1000
+
             # From left barrier visual end to right barrier visual start
             label_cw = "Carriageway Width"
+
             if self.show_carriageway_values:
                 label_cw += f" = {cw_m:.2f} m"
-            
-            self.draw_dimension_arrow(painter, actual_cw_start, Y_TOP_COMMON, actual_cw_end, Y_TOP_COMMON,
-                                    label_cw, True, 
-                                    extension_direction='down',
-                                    extension_end_y=deck_top_y)
+
+            self.draw_dimension_arrow(
+                painter,
+                actual_cw_start,
+                Y_TOP_COMMON,
+                actual_cw_end,
+                Y_TOP_COMMON,
+                label_cw,
+                True,
+                extension_direction='down',
+                extension_end_y=deck_top_y,
+                editable_dimension={
+                    "label_id": "carriageway_width",
+                    "source_key": KEY_CARRIAGEWAY_WIDTH,
+                    "unit": "m",
+                    "value": cw_m,
+                    "side": "center",
+                },
+            )
         
         # Right footpath dimension
         if right_railing_present and right_fp_width > 0:

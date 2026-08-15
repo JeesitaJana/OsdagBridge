@@ -1133,6 +1133,141 @@ class InputDock(QWidget):
             widget.blockSignals(blocked)
 
     # ══════════════════════════════════════════════════════════════════════════
+    # CAD dimension editing
+    # ══════════════════════════════════════════════════════════════════════════
+    def update_field_from_cad(self, key: str, value, unit: str | None = None) -> bool:
+        """Update an input value from the CAD dimension editor.
+
+        CAD dimensions are edited in the CAD view and then written directly
+        into the application's input dictionary.  If a corresponding
+        visible InputDock widget exists, it is updated as well.
+
+        Some editable CAD dimensions, such as deck thickness, belong to
+        Additional Inputs and therefore do not have a widget in the main
+        InputDock.  Those values must still be accepted and propagated.
+        """
+        # Validate numeric value first.
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            print(
+                f"[CAD EDIT] Invalid numeric value for {key}: {value}"
+            )
+            return False
+
+        if numeric_value != numeric_value:
+            return False
+
+        if numeric_value in (float("inf"), float("-inf")):
+            return False
+
+        if unit not in (None, "m", "mm"):
+            print(
+                f"[CAD EDIT] Unsupported unit '{unit}' for key: {key}"
+            )
+            return False
+
+        # Homepage fields that use metres.
+        meter_input_keys = {
+            KEY_SPAN,
+            KEY_CARRIAGEWAY_WIDTH,
+            KEY_TS_GIRDER_SPACING,
+            KEY_TS_DECK_OVERHANG,
+            KEY_TS_FOOTPATH_WIDTH,
+            KEY_MP_CB_SPACING,
+            KEY_CB_HEIGHT,
+            KEY_CB_WIDTH,
+            KEY_RL_WIDTH,
+            KEY_MD_WIDTH,
+        }
+
+        input_value = numeric_value
+
+        # CAD dimension is in mm while the corresponding input is in metres.
+        if unit == "mm" and key in meter_input_keys:
+            input_value = numeric_value / 1000.0
+
+        # CAD dimension is in metres while the corresponding thickness/input
+        # field is stored in millimetres.
+        elif unit == "m" and key not in meter_input_keys:
+            input_value = numeric_value * 1000.0
+
+        text_value = str(input_value)
+
+        # ------------------------------------------------------------------
+        # Update the application's authoritative input dictionary.
+        #
+        # This is important for Additional Inputs such as:
+        #     typical_section.deck_thickness
+        #
+        # Such fields may not have a QWidget inside InputDock.
+        # ------------------------------------------------------------------
+        self._update_input_dict(
+            key,
+            text_value
+        )
+
+        # ------------------------------------------------------------------
+        # Validate the value using the normal bridge validator.
+        # ------------------------------------------------------------------
+        try:
+            result = self.validator.validate_basic_inputs(
+                key,
+                self.parent.input_dict
+            )
+        except Exception as exc:
+            print(
+                f"[CAD EDIT] Validation skipped for {key}: {exc}"
+            )
+            result = None
+
+        if result is not None:
+            corrected, message = result
+
+            if corrected is None:
+                print(
+                    f"[CAD EDIT] Validator rejected value for key: {key}"
+                )
+                return False
+
+            text_value = str(corrected)
+
+            # Keep the authoritative dictionary synchronized with the
+            # validator-corrected value.
+            self._update_input_dict(
+                key,
+                text_value
+            )
+
+        # ------------------------------------------------------------------
+        # Update the visible InputDock widget if one exists.
+        #
+        # Deck thickness may not have a main-window widget, so this must
+        # remain optional.
+        # ------------------------------------------------------------------
+        widget = self._w(key)
+
+        if widget is not None:
+            self._set_widget_value_silently(
+                widget,
+                text_value
+            )
+
+        # Mark the required-input state as changed so the next design/update
+        # cycle does not restore stale values.
+        if self._is_require_field(key):
+            self.is_require_field_changed = True
+
+        print(
+            f"[CAD EDIT] Applied {key} = {text_value}"
+        )
+
+        # Trigger the normal input -> CAD update pipeline.
+        self.input_value_changed.emit()
+
+        return True
+
+    # ══════════════════════════════════════════════════════════════════════════
     # Utilities
     # ══════════════════════════════════════════════════════════════════════════
 

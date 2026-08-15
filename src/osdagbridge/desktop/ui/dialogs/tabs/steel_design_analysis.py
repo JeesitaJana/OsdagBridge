@@ -515,13 +515,14 @@ class SteelDesignAnalysisTab(QWidget):
         )
         comp_card_layout.addWidget(comp_title)
 
-        self.component_combo = RichTextComboBox()
+        self.component_combo = NoScrollComboBox()
         self.component_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.component_combo.setMinimumWidth(250)
         self.component_combo.setStyleSheet(_COMBO_STYLE)
         self.component_combo.addItems([
-            "Major (M<sub>z</sub>, V<sub>y</sub>, D<sub>y</sub>)",
-            "Minor (M<sub>y</sub>, V<sub>z</sub>, D<sub>z</sub>)",
-            "Axial (T<sub>x</sub>, F<sub>x</sub>, D<sub>x</sub>)",
+            "Major (Mz, Vy, Dy)",
+            "Minor (My, Vz, Dz)",
+            "Axial (Tx, Fx, Dx)",
         ])
         comp_card_layout.addWidget(self.component_combo)
 
@@ -543,9 +544,9 @@ class SteelDesignAnalysisTab(QWidget):
         # These are initialised here so update_rhs_labels() can update them
         # before the inner_row builds the right_col widget.
         self.lbl_x = self._side_label("x (m)")
-        self.lbl_m = self._side_label("M<sub>z</sub> (kNm)")
-        self.lbl_v = self._side_label("V<sub>y</sub> (kN)")
-        self.lbl_d = self._side_label("D<sub>y</sub> (mm)")
+        self.lbl_m = self._side_label("Mz (kNm)")
+        self.lbl_v = self._side_label("Vy (kN)")
+        self.lbl_d = self._side_label("Dy (mm)")
 
         for lbl in (self.lbl_x, self.lbl_m, self.lbl_v, self.lbl_d):
             lbl.setFixedWidth(70)
@@ -642,17 +643,17 @@ class SteelDesignAnalysisTab(QWidget):
         Update right-hand panel labels for major (0), minor (1), or axial (2) components.
         """
         if component_index == 0:  # Major
-            self.lbl_m.setText("M<sub>z</sub> (kNm)")
-            self.lbl_v.setText("V<sub>y</sub> (kN)")
-            self.lbl_d.setText("D<sub>y</sub> (mm)")
+            self.lbl_m.setText("Mz (kNm)")
+            self.lbl_v.setText("Vy (kN)")
+            self.lbl_d.setText("Dy (mm)")
         elif component_index == 1:  # Minor
-            self.lbl_m.setText("M<sub>y</sub> (kNm)")
-            self.lbl_v.setText("V<sub>z</sub> (kN)")
-            self.lbl_d.setText("D<sub>z</sub> (mm)")
+            self.lbl_m.setText("My (kNm)")
+            self.lbl_v.setText("Vz (kN)")
+            self.lbl_d.setText("Dz (mm)")
         elif component_index == 2:  # Axial
-            self.lbl_m.setText("M<sub>x</sub> (kNm)")
-            self.lbl_v.setText("F<sub>x</sub> (kN)")
-            self.lbl_d.setText("D<sub>x</sub> (mm)")
+            self.lbl_m.setText("Tx (kNm)")
+            self.lbl_v.setText("Fx (kN)")
+            self.lbl_d.setText("Dx (mm)")
 
 
 

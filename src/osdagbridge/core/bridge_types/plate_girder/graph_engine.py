@@ -1104,6 +1104,7 @@ class GirderGraphEngine:
         loadcase: str,
         bmd_key: str = "Mz_i",
         sfd_key: str = "Vy_i",
+        defl_key: str = "dy",
     ):
         """
         Extract x-coordinate, BMD, and SFD arrays for a girder / load case.
@@ -1118,6 +1119,8 @@ class GirderGraphEngine:
             Force component key for the bending moment trace (default ``"Mz_i"``).
         sfd_key : str
             Force component key for the shear force trace (default ``"Vy_i"``).
+        defl_key : str
+            Displacement component key for the deflection trace (default ``"dy"``).
 
         Returns
         -------
@@ -1133,10 +1136,10 @@ class GirderGraphEngine:
                 return None
             xs, bmd_values, sfd_values, all_data = result
 
-            defl_df = self._call_displacements(loadcase, member_key, "dy")
+            defl_df = self._call_displacements(loadcase, member_key, defl_key)
             if defl_df is not None and not defl_df.empty:
-                defl_values = defl_df["dy"].to_numpy()
-                all_data["dy"] = defl_values
+                defl_values = defl_df[defl_key].to_numpy()
+                all_data[defl_key] = defl_values
             else:
                 defl_values = np.zeros_like(xs)
 
@@ -1159,6 +1162,7 @@ class GirderGraphEngine:
         bmd_values: np.ndarray,
         sfd_values: np.ndarray,
         all_data: dict,
+        defl_key: str = "dy",
     ) -> dict:
         """
         Find the peak absolute values for all components and their x-positions.
@@ -1173,6 +1177,8 @@ class GirderGraphEngine:
             Active shear force array (kN).
         all_data : dict
             Dictionary mapping force component keys to nodal arrays.
+        defl_key : str
+            Displacement component key for the deflection trace (default ``"dy"``).
 
         Returns
         -------
@@ -1192,14 +1198,14 @@ class GirderGraphEngine:
             "x_V":  float(xs[idx_v]),
         }
 
-        if "dy" in all_data:
-            idx_d = int(np.argmax(np.abs(all_data["dy"])))
-            result["D_max"] = float(all_data["dy"][idx_d])
+        if defl_key in all_data:
+            idx_d = int(np.argmax(np.abs(all_data[defl_key])))
+            result["D_max"] = float(all_data[defl_key][idx_d])
             result["x_D"] = float(xs[idx_d])
 
         # Per-component peaks (used by left-panel summary fields)
-        comps   = ["Mz_i", "My_i", "Mx_i", "Vy_i", "Vz_i", "Fx_i", "dy"]
-        ui_keys = ["M_z",  "M_y",  "T_x",  "V_y",  "V_z",  "F_x",  "D_y"]
+        comps   = ["Mz_i", "My_i", "Mx_i", "Vy_i", "Vz_i", "Fx_i", "dy", "dz", "dx"]
+        ui_keys = ["M_z",  "M_y",  "T_x",  "V_y",  "V_z",  "F_x",  "D_y", "D_z", "D_x"]
 
         for comp, uik in zip(comps, ui_keys):
             arr     = all_data.get(comp, np.zeros(len(xs)))

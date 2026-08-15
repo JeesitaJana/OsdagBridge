@@ -421,6 +421,10 @@ def _build_full_data(model, edge_dist: float = 0.0, dataset=None, lazy: bool = F
         else:
             transverse_members.append(tag)
 
+    print("[MEMBER DEBUG] Total members:", len(members))
+    print("[MEMBER DEBUG] Longitudinal members:", longitudinal_members)
+    print("[MEMBER DEBUG] Transverse members:", transverse_members)
+
     data: dict = {
         "nodes": {str(k): list(v) for k, v in nodes.items()},
         "members": {str(k): list(v) for k, v in members.items()},

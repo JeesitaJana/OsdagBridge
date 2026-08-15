@@ -1,7 +1,7 @@
 import os, yaml
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QMenuBar, QSplitter, QSizePolicy, QPushButton, QLineEdit, QComboBox, QFileDialog,
+    QMenuBar, QSplitter, QSizePolicy, QPushButton, QLineEdit, QComboBox, QFileDialog, QDialog,
 )
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtCore import Qt, QFile, QTextStream, Signal, QTimer, QObject, QEvent, QThread
@@ -16,7 +16,6 @@ from osdagbridge.desktop.ui.dialogs.additional_input.additional_inputs import Ad
 from osdagbridge.desktop.ui.dialogs.custom_messagebox import CustomMessageBox, MessageBoxType
 from osdagbridge.desktop.ui.dialogs.loading_popup import LoadingDialogManager
 from osdagbridge.desktop.ui.cad_3d import CAD3DWindow
-from osdagbridge.desktop.ui.dialogs.cad_dimension_editor import CadDimensionEditorDialog
 
 from osdagbridge.core.bridge_types.plate_girder.ui_fields import FrontendData
 from osdagbridge.core.bridge_types.plate_girder.defaults import BASIC_INPUT_DICT, solve_extend_basic_input_dict
@@ -782,13 +781,134 @@ class CustomWindow(QWidget):
             dialogType=MessageBoxType.Critical,
         ).exec()
 
-    #-------Common-Design-Save-Additional-Inputs-Functionality-END---------
+    #-------Common-Design-Save-Additional-Inputs-Functio
 
     def setup_cad_connections(self):
         """Connect input and CAD edit signals to the live CAD update pipeline."""
-        if hasattr(self.input_dock, 'input_value_changed'):
-            self.input_dock.input_value_changed.connect(self.update_cad_from_inputs)        
-            
+        if hasattr(self.input_dock, "input_value_changed"):
+            self.input_dock.input_value_changed.connect(
+                self.update_cad_from_inputs
+            )
+
+        # CAD -> dimension editor -> InputDock -> input_dict -> CAD
+        if hasattr(self.cad_comp_widget, "dimensionEditRequested"):
+            self.cad_comp_widget.dimensionEditRequested.connect(
+                self._handle_cad_dimension_edit
+            )
+
+    def _handle_cad_dimension_edit(self, payload):
+        """Open the CAD dimension editor and apply an accepted value to InputDock.
+
+        Only the write-enabled bridge dimensions are allowed through this
+        reverse-edit path. Derived CAD dimensions remain read-only.
+        """
+        payload = payload or {}
+
+        source_key = payload.get("source_key")
+        if not source_key:
+            return
+        print("[CAD EDIT PAYLOAD]", payload)
+        # CAD widgets use a few internal parameter names. Convert them to the
+        # canonical InputDock keys before updating the homepage input.
+        source_to_input_key = {
+            "span_length": KEY_SPAN,
+            "girder_spacing": KEY_TS_GIRDER_SPACING,
+            "carriageway_width": KEY_CARRIAGEWAY_WIDTH,
+            "deck_thickness": KEY_TS_DECK_THICKNESS,
+
+            # CAD widgets may send the canonical InputDock keys directly.
+            KEY_SPAN: KEY_SPAN,
+            KEY_TS_GIRDER_SPACING: KEY_TS_GIRDER_SPACING,
+            KEY_CARRIAGEWAY_WIDTH: KEY_CARRIAGEWAY_WIDTH,
+            KEY_TS_DECK_THICKNESS: KEY_TS_DECK_THICKNESS,
+        }
+        input_key = source_to_input_key.get(source_key, source_key)
+
+        # Write-enabled dimensions:
+        #   - Carriageway Width
+        #   - Girder Spacing
+        #   - Deck Thickness
+        #   - Span Length
+        editable_keys = {
+            KEY_CARRIAGEWAY_WIDTH,
+            KEY_TS_GIRDER_SPACING,
+            KEY_TS_DECK_THICKNESS,
+            KEY_SPAN,
+        }
+
+        if input_key not in editable_keys:
+            return
+
+        current_value = payload.get("value")
+        if current_value is None:
+            return
+
+        dialog = CadDimensionEditorDialog(parent=self)
+        dialog.set_context(
+            {
+                **payload,
+                "source_key": input_key,
+            }
+        )
+
+        # InputDock performs the authoritative engineering validation after
+        # the user accepts the dialog.
+        dialog.set_limits(0.0, 1_000_000.0, 3)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        new_value = dialog.value()
+
+        if not self.input_dock.update_field_from_cad(
+            input_key,
+            new_value,
+            payload.get("unit"),
+        ):
+            CustomMessageBox(
+                title="Invalid Dimension",
+                text=(
+                    "The entered value could not be applied to the "
+                    "corresponding input field."
+                ),
+                dialogType=MessageBoxType.Warning,
+            ).exec()
+
+    # Function for saving input dictionary into an OSI file
+    def saveOSI_inputs(self):
+        # Populate additional input defaults so they appear in the saved file
+        # even if the user never opened the Additional Inputs dialog.
+        try:
+            solve_extend_basic_input_dict(self.input_dict)
+        except Exception:
+            pass
+
+        default_dir = os.path.join(get_documents_folder(), "inputs.osi")
+        filePath, _ = QFileDialog.getSaveFileName(self,
+                "Save Design Inputs",
+                default_dir,
+                "Input Files(*.osi)",
+                None)
+        if not filePath:
+            return
+
+        try:
+            with open(filePath, 'w') as input_file:
+                yaml.dump(self.input_dict, input_file)
+
+            CustomMessageBox(
+                title="Success",
+                text="Saved OSI Successfully!",
+                dialogType=MessageBoxType.Success
+            ).exec()
+
+        except Exception as e:
+            CustomMessageBox(
+                title="Unsaved File",
+                text=f"OSI file not saved:\n{e}",
+                dialogType=MessageBoxType.Warning
+            ).exec()
+
     # Function for saving input dictionary into an OSI file
     def saveOSI_inputs(self):
         # Populate additional input defaults so they appear in the saved file

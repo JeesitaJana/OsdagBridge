@@ -1512,6 +1512,7 @@ class UIBuilder(QWidget):
                 # Persist the synced value so it survives save and reaches
                 # Generate Results (input_dict), not just the displayed widget.
                 ai.working_input_dict[widget_id] = val
+
                 w = current_widget.findChild(QLineEdit, widget_id)
                 if w:
                     w.setText(str(val))
